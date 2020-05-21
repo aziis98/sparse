@@ -1,5 +1,5 @@
 
-<img src="logo-small.png" width="330">
+<img src="logo.png" width="330">
 
 # Sparse
 
