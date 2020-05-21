@@ -1,16 +1,32 @@
+
+type OptionalWrapperClass = (new (...token: any[]) => any) | false
+
+export class ParseNode {
+    children: any[] = []
+
+    constructor(children: any[]) {
+        this.children = children;
+    }
+}
+
 export abstract class Parser {
     private source: string = "";
-    private stack: string[][] = [[]];
+    private internalStack: any[][] = [[]];
     private tokenCurrent: string = "";
     private pos: number = 0;
 
-    abstract parse(source: string): any;
+    abstract parseSource(): any;
 
-    initialize(source: string) {
+    parse(source: string) {
         this.source = source;
-        this.stack = [[]];
+        this.internalStack = [[]];
         this.tokenCurrent = "";
         this.pos = 0;
+
+        this.parseSource();
+        
+        this.finalizeToken();
+        return this.stackHead;
     }
 
     getLineColumn() {
@@ -18,69 +34,93 @@ export abstract class Parser {
         return [linesBefore.length, linesBefore[linesBefore.length - 1].length];
     }
 
-    peek(len = 1) {
+    peek(len = 1): string {
         return this.source.slice(this.pos, this.pos + len);
     }
 
-    consume(stepsOrToken: number | string) {
-        this.tokenFinalize();
+    hasNext(): boolean {
+        return this.pos < this.source.length
+    }
+
+    skip(stepsOrToken: number | string) {
+        this.finalizeToken();
 
         if (typeof stepsOrToken === 'number') {
-            this.tokenStep(stepsOrToken)
+            this.pos += stepsOrToken
         }
         else if (typeof stepsOrToken === 'string') {
-            const newChars = this.tokenStep(stepsOrToken.length);
-            
-            if(stepsOrToken !== newChars) {
+            const newChars = this.stepToken(stepsOrToken.length);
+            this.popToken();
+
+            if (stepsOrToken !== newChars) {
                 const [line, col] = this.getLineColumn();
                 throw `Illegal token '${newChars}' at ${line}:${col}`
             }
         }
     }
 
-    tokenStep(steps = 1): string {
+    stepToken(steps = 1): string {
         const newChars = this.source.slice(this.pos, this.pos + steps);
         this.tokenCurrent += newChars;
         this.pos += steps;
         return newChars;
     }
 
-    tokenStepUntil(predicate: (char: string) => boolean) {
+    stepTokenUntil(predicate: (char: string) => boolean) {
+        const startPos = this.pos;
+
         while (predicate(this.source[this.pos])) {
             this.tokenCurrent += this.source[this.pos];
             this.pos++;
         }
+
+        // return this.source.slice(startPos, this.pos);
     }
 
-    get stackCurrent(): string[] {
-        return this.stack[this.stack.length - 1];
+    get stackHead(): string[] {
+        return this.internalStack[this.internalStack.length - 1];
     }
 
-    tokenFinalize() {
+    finalizeToken() {
         if (this.tokenCurrent.length > 0) {
-            this.stackCurrent.push(this.tokenCurrent);
+            this.stackHead.push(this.tokenCurrent);
             this.tokenCurrent = "";
         }
     }
 
-    tokenPush(token: string) {
-        this.tokenFinalize();
-        this.stackCurrent.push(token);
+    pushToken(token: any) {
+        this.finalizeToken();
+        this.stackHead.push(token);
     }
 
-    tokenPop(): string {
-        this.tokenFinalize();
-        return this.stackCurrent.pop()!;
+    popToken(): any {
+        this.finalizeToken();
+        return this.stackHead.pop()!;
     }
 
-    stackPush() {
-        this.tokenFinalize();
-        this.stack.push([]);
+    pushStack() {
+        this.finalizeToken();
+        this.internalStack.push([]);
     }
 
-    stackPop(): string[] {
-        this.tokenFinalize();
-        return this.stack.pop()!;
+    popStack() {
+        this.finalizeToken();
+        this.pushToken(this.internalStack.pop()!);
+    }
+
+    stack(scope: () => void, WrapperClass: OptionalWrapperClass = false) {
+        this.pushStack();
+        scope();
+        this.popStack();
+        
+        if (WrapperClass) this.wrapToken(WrapperClass)
+    }
+
+    wrapToken(WrapperClass: new (...token: any[]) => any) {
+        this.finalizeToken();
+        this.stackHead.push(
+            new WrapperClass(...this.stackHead.pop()!)
+        );
     }
 
 }
