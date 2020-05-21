@@ -37,27 +37,23 @@ export class TextFormattingParser extends Parser {
 
     parseBold() {
         this.skip('*');
-        this.stack(() => {
-            this.stepTokenUntil(c => c !== '*');
-        }, Bold);
+        this.stack(() => this.stepUntilWord('*'), Bold);
         this.skip('*');
     }
 
     parseItalic() {
         this.skip('_');
-        this.stack(() => {
-            this.stepTokenUntil(c => c !== '_');
-        }, Italic);
+        this.stack(() => this.stepUntilWord('_'), Italic);
         this.skip('_');
     }
 
     parseLink() {
         this.skip('[');
         this.stack(() => {
-            this.stepTokenUntil(c => c !== ']');
+            this.stepUntilWord(']');
             this.skip(']');
             this.skip('[');
-            this.stepTokenUntil(c => c !== ']');
+            this.stepUntilWord(']');
         }, Link);
         this.skip(']');
     }
@@ -73,8 +69,7 @@ export class TextFormattingParser extends Parser {
                 '[': () => this.parseLink()
             })[char];
 
-            fn ? fn() : this.stepToken();
-
+            fn ? fn() : this.step();
         }
     }
 

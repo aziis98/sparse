@@ -9,24 +9,20 @@ export class ParseNode {
     }
 }
 
+/**
+ * Word: Slice of this.source
+ * Token: String inside a layer of the stack or in currentToken
+ */
 export abstract class Parser {
     private source: string = "";
     private internalStack: any[][] = [[]];
-    private tokenCurrent: string = "";
+    private currentToken: string = "";
     private pos: number = 0;
 
     abstract parseSource(): any;
 
-    parse(source: string) {
-        this.source = source;
-        this.internalStack = [[]];
-        this.tokenCurrent = "";
-        this.pos = 0;
-
-        this.parseSource();
-        
-        this.finalizeToken();
-        return this.stackHead;
+    get stackHead(): string[] {
+        return this.internalStack[this.internalStack.length - 1];
     }
 
     getLineColumn() {
@@ -42,49 +38,62 @@ export abstract class Parser {
         return this.pos < this.source.length
     }
 
-    skip(stepsOrToken: number | string) {
+    parse(source: string) {
+        this.source = source;
+        this.internalStack = [[]];
+        this.currentToken = "";
+        this.pos = 0;
+
+        this.parseSource();
+        
+        this.finalizeToken();
+        return this.stackHead;
+    }
+
+    
+    skip(stepsOrWord: number | string) {
         this.finalizeToken();
 
-        if (typeof stepsOrToken === 'number') {
-            this.pos += stepsOrToken
+        if (typeof stepsOrWord === 'number') {
+            this.pos += stepsOrWord
         }
-        else if (typeof stepsOrToken === 'string') {
-            const newChars = this.stepToken(stepsOrToken.length);
+        else if (typeof stepsOrWord === 'string') {
+            const newChars = this.step(stepsOrWord.length);
             this.popToken();
 
-            if (stepsOrToken !== newChars) {
+            if (stepsOrWord !== newChars) {
                 const [line, col] = this.getLineColumn();
                 throw `Illegal token '${newChars}' at ${line}:${col}`
             }
         }
     }
 
-    stepToken(steps = 1): string {
+    step(steps = 1): string {
         const newChars = this.source.slice(this.pos, this.pos + steps);
-        this.tokenCurrent += newChars;
+        this.currentToken += newChars;
         this.pos += steps;
         return newChars;
     }
 
-    stepTokenUntil(predicate: (char: string) => boolean) {
-        const startPos = this.pos;
-
-        while (predicate(this.source[this.pos])) {
-            this.tokenCurrent += this.source[this.pos];
-            this.pos++;
-        }
-
-        // return this.source.slice(startPos, this.pos);
+    stepUntil(predicate: (char: string, pos: number, source: string) => boolean) {
+        this.stepWhile((c, pos, source) => !predicate(c, pos, source))
     }
 
-    get stackHead(): string[] {
-        return this.internalStack[this.internalStack.length - 1];
+    stepWhile(predicate: (char: string, pos: number, source: string) => boolean) {
+        while (predicate(this.source[this.pos], this.pos, this.source)) {
+            this.currentToken += this.source[this.pos];
+            this.pos++;
+        }
+    }
+
+    stepUntilWord(target: string) {
+        this.stepUntil(() => this.peek(target.length) === target);
     }
 
     finalizeToken() {
-        if (this.tokenCurrent.length > 0) {
-            this.stackHead.push(this.tokenCurrent);
-            this.tokenCurrent = "";
+        if (this.currentToken.length > 0) {
+            this.stackHead.push(this.currentToken);
+            this.currentToken = "";
         }
     }
 
