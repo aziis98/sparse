@@ -1,4 +1,4 @@
-import { parseSExpression } from "./sexpr.ts";
+import { parseSExpression } from "./s-expr.ts";
 
 Deno.test(`SExpr.parseSExpr()`, () => {
     console.log(JSON.stringify(
