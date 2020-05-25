@@ -1,25 +1,4 @@
-
-import { Parser, ParseNode } from "../parser.ts";
-
-type Cases<T> = Record<string, T | undefined>;
-
-export class Bold extends ParseNode {
-    text: string;
-
-    constructor(boldText: string) {
-        super([ boldText ]);
-        this.text = boldText;
-    }
-}
-
-export class Italic extends ParseNode {
-    text: string;
-    
-    constructor(italicText: string) {
-        super([ italicText ]);
-        this.text = italicText;
-    }
-}
+import { Parser, ParseNode, Node, IParseExcept } from "../parser.ts";
 
 export class Link extends ParseNode {
     uri: string;
@@ -37,13 +16,13 @@ export class TextFormattingParser extends Parser {
 
     parseBold() {
         this.skip('*');
-        this.stack(() => this.stepUntilWord('*'), Bold);
+        this.stack(() => this.stepUntilWord('*'), Node("bold"));
         this.skip('*');
     }
 
     parseItalic() {
         this.skip('_');
-        this.stack(() => this.stepUntilWord('_'), Italic);
+        this.stack(() => this.stepUntilWord('_'), Node("italic"));
         this.skip('_');
     }
 
@@ -58,21 +37,22 @@ export class TextFormattingParser extends Parser {
         this.skip(']');
     }
 
-    parseSource() {
-        while(this.hasNext()) {
-
-            const char = this.peek();
-
-            const fn = (<Cases<() => void>> {
+    parseFormattedText({ except }: IParseExcept = {}) {
+        while(this.hasNext({ except })) {
+            //@ts-ignore
+            const fn = ({
                 '*': () => this.parseBold(),
                 '_': () => this.parseItalic(),
                 '[': () => this.parseLink()
-            })[char];
+            })[this.peek()];
 
             fn ? fn() : this.step();
         }
     }
 
+    parseSource() {
+        this.parseFormattedText()
+    }
 }
 
 export function parseFormattedText(source: string) {

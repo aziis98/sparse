@@ -1,12 +1,75 @@
 
 type OptionalWrapperClass = (new (...token: any[]) => any) | false
 
-export class ParseNode {
+export abstract class ParseNode {
     children: any[] = []
 
     constructor(children: any[]) {
         this.children = children;
     }
+}
+
+export function Node(name: string) {
+    return class extends ParseNode {
+        name: string;
+
+        constructor(text: string) {
+            super([ text ]);
+            this.name = name;
+        }
+
+        get text(): string {
+            return this.children[0];
+        }
+    };
+}
+
+export function Compound(name: string) {
+    return class extends ParseNode {    
+        name: string
+        
+        constructor(children: any[]) {
+            super(children);
+            this.name = name;
+        }
+    };
+}
+
+export interface IParseExcept {
+    except?: string
+} 
+
+export interface IParser {
+
+    getLineColumn(): void
+
+    peek(len: number): string
+
+    hasNext(): boolean
+    
+    skip(stepsOrWord: number | string): void
+
+    step(steps: number): string
+
+    stepUntil(predicate: (char: string, pos: number, source: string) => boolean): void
+
+    stepWhile(predicate: (char: string, pos: number, source: string) => boolean): void
+
+    stepUntilWord(target: string): void
+
+    finalizeToken(): void
+
+    pushToken(token: any): void
+
+    popToken(): any
+
+    pushStack(): void
+    
+    popStack(): void
+    
+    stack(scope: () => void, WrapperClass: OptionalWrapperClass): void
+    
+    wrapToken(WrapperClass: new (...token: any[]) => any): void
 }
 
 /**
@@ -34,8 +97,8 @@ export abstract class Parser {
         return this.source.slice(this.pos, this.pos + len);
     }
 
-    hasNext(): boolean {
-        return this.pos < this.source.length
+    hasNext({ except }: { except?: string } = {}): boolean {
+        return this.pos < this.source.length && (!except || this.peek(except.length) !== except);
     }
 
     parse(source: string) {
@@ -63,7 +126,7 @@ export abstract class Parser {
 
             if (stepsOrWord !== newChars) {
                 const [line, col] = this.getLineColumn();
-                throw `Illegal token '${newChars}' at ${line}:${col}`
+                throw new Error(`Illegal token "${newChars}", expected "${stepsOrWord}" at ${line}:${col}`)
             }
         }
     }
@@ -90,6 +153,17 @@ export abstract class Parser {
         this.stepUntil(() => this.peek(target.length) === target);
     }
 
+    stepByRegex(regex: RegExp) {
+        const stickyRegex = new RegExp(regex, 'y');
+        stickyRegex.lastIndex = this.pos;
+
+        const r = stickyRegex.exec(this.source);
+
+        if (r) this.step(r[0].length);
+
+        return !!r;
+    }
+
     finalizeToken() {
         if (this.currentToken.length > 0) {
             this.stackHead.push(this.currentToken);
@@ -103,8 +177,12 @@ export abstract class Parser {
     }
 
     popToken(): any {
-        this.finalizeToken();
-        return this.stackHead.pop()!;
+        if (this.currentToken.length > 0) {
+            this.finalizeToken();
+            return this.stackHead.pop()!;
+        } else {
+            return null;
+        }
     }
 
     pushStack() {
@@ -122,14 +200,18 @@ export abstract class Parser {
         scope();
         this.popStack();
         
-        if (WrapperClass) this.wrapToken(WrapperClass)
+        if (WrapperClass) {
+            this.finalizeToken();
+            this.stackHead.push(
+                new WrapperClass(...this.stackHead.pop()!)
+            );
+        }
     }
 
-    wrapToken(WrapperClass: new (...token: any[]) => any) {
+    wrapToken(WrapperClass: new (token: any) => any) {
         this.finalizeToken();
         this.stackHead.push(
-            new WrapperClass(...this.stackHead.pop()!)
+            new WrapperClass(this.stackHead.pop()!)
         );
     }
-
 }
