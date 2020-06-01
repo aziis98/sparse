@@ -1,55 +1,58 @@
-import { Parser, Node, Compound } from "../parser.ts";
+import { Parser, Node } from "../parser.ts";
+
+const STRING = /".+?"/;
+const IDENTIFIER = /[^\s()]+/;
+const NUMBER = /[0-9]+\.?[0-9]*/;
 
 export class SExpressionParser extends Parser {
 
-    static STRING = /".+?"/;
-    static IDENTIFIER = /[^\s()]+/;
-    static NUMBER = /[0-9](\.[0-9]*)?/;
-
     parseLitteral() {
-        if (this.stepByRegex(SExpressionParser.NUMBER)) {
-            const token = this.popToken();
-            this.pushToken(parseFloat(token));
-            this.wrapToken(Node('number'));
-        } else if (this.stepByRegex(SExpressionParser.STRING)) {
-            const token = this.popToken();
-            this.pushToken(token.slice(1, token.length - 1));
-            this.wrapToken(Node('string'));
-        } else if (this.stepByRegex(SExpressionParser.IDENTIFIER)) {
-            this.wrapToken(Node('identifier'));
-        } else {
-            const [line, col] = this.getLineColumn();
-            throw new Error(`Illegal token "${this.peek()}" at ${line}:${col}`)
-        }
+        [
+            {
+                regex: NUMBER,
+                transform: (token: string) => parseFloat(token)
+            },
+            {
+                regex: STRING,
+                transform: (token: string) => token //.slice(1, token.length - 1)
+            },
+            {
+                regex: IDENTIFIER,
+                transform: (token: string) => token
+            }
+        ].find(
+            ({ regex, transform }) => {
+                const m = this.stepByRegex(regex) 
+                if (m) this.pushToken(transform(this.popToken()))
+                return !!m;
+            }
+        ) || this.throwUnexpectedSequence(this.peek())
     }
 
     parseList() {
         this.skip('(');
         this.stack(() => {
             while (this.hasNext({ except: ')' })) {
-                
-                this.stepByRegex(/\s+/);
-                this.popToken();
-                
+
+                this.skipByRegex(/\s*/);
+
                 let isQuoted = false;
 
                 if (this.peek() === "'") {
                     isQuoted = true;
                     this.skip("'");
+                    this.pushStack();
+                    this.pushToken("quote");
                 }
 
-                if (this.peek() === '(') {
+                if (this.peek() === '(')
                     this.parseList();
-                } else {
+                else 
                     this.parseLitteral();
-                }
 
-                if (isQuoted) {
-                    this.wrapToken(Node('quote'));
-                }
+                if (isQuoted) this.popStack();
 
-                this.stepByRegex(/\s+/);
-                this.popToken();
+                this.skipByRegex(/\s*/);
             }
         })
         this.skip(')');
@@ -61,5 +64,9 @@ export class SExpressionParser extends Parser {
 }
 
 export function parseSExpression(source: string) {
-    return new SExpressionParser().parse(source);
+    return new SExpressionParser().parse(source)[0];
+}
+
+export function parseSExpressionList(source: string) {
+    return new SExpressionParser().parse(`(${source})`)[0];
 }

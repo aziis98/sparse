@@ -1,6 +1,6 @@
 
 import { assertEquals } from "https://deno.land/std/testing/asserts.ts";
-import { parseFormattedText, Link, TextFormattingParser } from './text-formatting.ts';
+import { parseFormattedText, Link } from './text-formatting.ts';
 import { Node } from "../parser.ts";
 
 Deno.test(`Simple Markdown`, () => {

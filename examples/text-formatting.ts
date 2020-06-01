@@ -1,12 +1,10 @@
-import { Parser, ParseNode, Node, IParseExcept } from "../parser.ts";
+import { Parser, Node, IParseExcept } from "../parser.ts";
 
-export class Link extends ParseNode {
+export class Link {
     uri: string;
     label: string;
     
     constructor(uri: string, label: string) {
-        super([ uri, label ]);
-
         this.uri = uri;
         this.label = label;
     }
