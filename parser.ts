@@ -1,76 +1,31 @@
 
 type OptionalWrapperClass = (new (...token: any[]) => any) | false
 
-export abstract class ParseNode {
-    children: any[] = []
-
-    constructor(children: any[]) {
-        this.children = children;
-    }
-}
-
-export function Node(name: string) {
-    return class extends ParseNode {
+export function Node<T = string>(name: string) {
+    return class ParseNode {
+        text: T;
         name: string;
 
-        constructor(text: string) {
-            super([ text ]);
+        constructor(text: T) {
+            this.text = text;
             this.name = name;
-        }
-
-        get text(): string {
-            return this.children[0];
         }
     };
 }
 
 export function Compound(name: string) {
-    return class extends ParseNode {    
+    return class CompoundNode {    
+        children: any[]
         name: string
         
-        constructor(children: any[]) {
-            super(children);
+        constructor(...children: any[]) {
+            this.children = [...children];
             this.name = name;
         }
     };
 }
 
-export interface IParseExcept {
-    except?: string
-} 
-
-export interface IParser {
-
-    getLineColumn(): void
-
-    peek(len: number): string
-
-    hasNext(): boolean
-    
-    skip(stepsOrWord: number | string): void
-
-    step(steps: number): string
-
-    stepUntil(predicate: (char: string, pos: number, source: string) => boolean): void
-
-    stepWhile(predicate: (char: string, pos: number, source: string) => boolean): void
-
-    stepUntilWord(target: string): void
-
-    finalizeToken(): void
-
-    pushToken(token: any): void
-
-    popToken(): any
-
-    pushStack(): void
-    
-    popStack(): void
-    
-    stack(scope: () => void, WrapperClass: OptionalWrapperClass): void
-    
-    wrapToken(WrapperClass: new (...token: any[]) => any): void
-}
+export type IParseExcept = { except?: string } 
 
 /**
  * Word: Slice of this.source
@@ -83,6 +38,20 @@ export abstract class Parser {
     private pos: number = 0;
 
     abstract parseSource(): any;
+
+    parse(source: string) {
+        this.source = source;
+        this.internalStack = [[]];
+        this.currentToken = "";
+        this.pos = 0;
+
+        this.parseSource();
+        
+        this.finalizeToken();
+        return this.stackHead;
+    }
+
+    // Getters //
 
     get stackHead(): string[] {
         return this.internalStack[this.internalStack.length - 1];
@@ -101,19 +70,14 @@ export abstract class Parser {
         return this.pos < this.source.length && (!except || this.peek(except.length) !== except);
     }
 
-    parse(source: string) {
-        this.source = source;
-        this.internalStack = [[]];
-        this.currentToken = "";
-        this.pos = 0;
-
-        this.parseSource();
-        
-        this.finalizeToken();
-        return this.stackHead;
-    }
-
+    // Skipping Function //
     
+    /**
+     * Step the cursor by the given number of characters without adding 
+     * them to the current token.
+     * 
+     * @param stepsOrWord Number of characters to skip or expected word
+     */
     skip(stepsOrWord: number | string) {
         this.finalizeToken();
 
@@ -125,12 +89,44 @@ export abstract class Parser {
             this.popToken();
 
             if (stepsOrWord !== newChars) {
-                const [line, col] = this.getLineColumn();
-                throw new Error(`Illegal token "${newChars}", expected "${stepsOrWord}" at ${line}:${col}`)
+                this.throwUnexpectedSequence(stepsOrWord, newChars)
             }
         }
     }
 
+    skipUntil(predicate: (char: string, pos: number, source: string) => boolean) {
+        this.skipWhile((c, pos, source) => !predicate(c, pos, source))
+    }
+
+    skipWhile(predicate: (char: string, pos: number, source: string) => boolean) {
+        this.finalizeToken();
+        while (predicate(this.source[this.pos], this.pos, this.source)) {
+            this.pos++;
+        }
+    }
+
+    skipByRegex(regex: RegExp) {
+        const stickyRegex = new RegExp(regex, 'y');
+        stickyRegex.lastIndex = this.pos;
+
+        const m = stickyRegex.exec(this.source);
+
+        if (m) 
+            this.skip(m[0].length);
+        else 
+            this.throwUnexpectedSequence(regex.toString(), this.peek());
+
+        return m;
+    }
+
+    // Stepping Functions //
+
+    /**
+     * Step the cursor by the given number of characters and adds
+     * them to the current token.
+     * 
+     * @param steps Number of charactes to add to the current token.
+     */
     step(steps = 1): string {
         const newChars = this.source.slice(this.pos, this.pos + steps);
         this.currentToken += newChars;
@@ -157,12 +153,14 @@ export abstract class Parser {
         const stickyRegex = new RegExp(regex, 'y');
         stickyRegex.lastIndex = this.pos;
 
-        const r = stickyRegex.exec(this.source);
+        const m = stickyRegex.exec(this.source);
 
-        if (r) this.step(r[0].length);
+        if (m) this.step(m[0].length);
 
-        return !!r;
+        return m;
     }
+
+    // Stack Manipulation //
 
     finalizeToken() {
         if (this.currentToken.length > 0) {
@@ -179,10 +177,9 @@ export abstract class Parser {
     popToken(): any {
         if (this.currentToken.length > 0) {
             this.finalizeToken();
-            return this.stackHead.pop()!;
-        } else {
-            return null;
         }
+        
+        return this.stackHead.pop()!;
     }
 
     pushStack() {
@@ -193,6 +190,11 @@ export abstract class Parser {
     popStack() {
         this.finalizeToken();
         this.pushToken(this.internalStack.pop()!);
+    }
+
+    unwrapToken() {
+        this.finalizeToken();
+        this.popToken().forEach((t: any) => this.pushToken(t));
     }
 
     stack(scope: () => void, WrapperClass: OptionalWrapperClass = false) {
@@ -213,5 +215,20 @@ export abstract class Parser {
         this.stackHead.push(
             new WrapperClass(this.stackHead.pop()!)
         );
+    }
+
+    // Errors
+
+    throwUnexpectedSequence(expected: string, got: string = this.peek()) {
+        const [line, col] = this.getLineColumn();
+        throw new Error(`Illegal token "${got}", expected "${expected}" at ${line}:${col}`);
+    }
+
+    debugStack() {
+        console.log(`Currenttoken: "${this.currentToken}"(${this.currentToken.length})`)
+        console.log('Stack:')
+        this.internalStack.forEach(layer => {
+            console.log(JSON.stringify(layer, null, 2));
+        });
     }
 }
